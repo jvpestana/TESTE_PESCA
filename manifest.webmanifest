@@ -1,0 +1,9 @@
+{
+  "name": "Dia de pesca",
+  "short_name": "Dia de pesca",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3eee4",
+  "theme_color": "#0e5c54",
+  "lang": "pt-BR"
+}

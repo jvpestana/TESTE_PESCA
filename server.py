@@ -7,7 +7,6 @@ import json
 import re
 import threading
 import time
-import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -17,10 +16,8 @@ import forecast
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 SLUG = re.compile(r"^[a-z0-9-]{1,80}$")
-# HOST = "0.0.0.0"
-# PORT = 8787
 HOST = "0.0.0.0"
-PORT = int(os.environ.get("PORT", 8787))
+PORT = 8787
 TTL = 600
 
 _lock = threading.Lock()
@@ -69,27 +66,40 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(parsed.path)
         qs = parse_qs(parsed.query)
         try:
+            if path == "/api/estados":
+                data = _cached("estados", forecast.list_estados)
+                self._json(200, data)
+                return
             if path == "/api/municipios":
-                data = _cached("mun", forecast.list_municipios)
+                estado = (qs.get("estado") or [""])[0]
+                if not SLUG.match(estado):
+                    self._json(400, {"error": "Estado inválido."})
+                    return
+                data = _cached("mun:" + estado, lambda estado=estado: forecast.list_municipios(estado))
                 self._json(200, data)
                 return
             if path == "/api/praias":
+                estado = (qs.get("estado") or [""])[0]
                 mun = (qs.get("municipio") or [""])[0]
-                if not SLUG.match(mun):
-                    self._json(400, {"error": "Cidade inválida."})
+                if not SLUG.match(estado) or not SLUG.match(mun):
+                    self._json(400, {"error": "Escolha o estado e a cidade."})
                     return
-                data = _cached("praias:" + mun, lambda: forecast.list_praias(mun))
+                data = _cached(
+                    f"praias:{estado}/{mun}",
+                    lambda estado=estado, mun=mun: forecast.list_praias(estado, mun),
+                )
                 self._json(200, data)
                 return
             if path == "/api/previsao":
+                estado = (qs.get("estado") or [""])[0]
                 mun = (qs.get("municipio") or [""])[0]
                 praia = (qs.get("praia") or [""])[0]
-                if not SLUG.match(mun) or not SLUG.match(praia):
-                    self._json(400, {"error": "Escolha uma cidade e uma praia do Espírito Santo."})
+                if not SLUG.match(estado) or not SLUG.match(mun) or not SLUG.match(praia):
+                    self._json(400, {"error": "Escolha o estado, a cidade e a praia."})
                     return
-                key = f"prev:{mun}/{praia}"
+                key = f"prev:{estado}/{mun}/{praia}"
                 fresh = (qs.get("fresh") or ["0"])[0] == "1"
-                loader = lambda: forecast.load_beach(mun, praia)
+                loader = lambda estado=estado, mun=mun, praia=praia: forecast.load_beach(estado, mun, praia)
                 data = _fresh(key, loader) if fresh else _cached(key, loader)
                 self._json(200, data)
                 return

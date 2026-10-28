@@ -23,9 +23,29 @@ UA = (
     "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 )
 KN_TO_KMH = 1.852
-# Sizígia típica na costa central do Espírito Santo, em metros.
-# O SurfGuru publica alturas, não o coeficiente.
+# Sizígia típica, em metros. O SurfGuru publica alturas, não o coeficiente.
+# Espírito Santo permanece em 1,6 m, a referência original do app.
 SPRING_RANGE_M = 1.6
+SPRING_BY_STATE = {
+    "alagoas": 2.0,
+    "amapa": 4.0,
+    "bahia": 2.2,
+    "ceara": 2.6,
+    "espirito-santo": 1.6,
+    "fernando-de-noronha": 2.4,
+    "maranhao": 6.0,
+    "para": 3.6,
+    "paraiba": 2.2,
+    "parana": 1.8,
+    "pernambuco": 2.3,
+    "piaui": 3.0,
+    "rio-de-janeiro": 1.3,
+    "rio-grande-do-norte": 2.6,
+    "rio-grande-do-sul": 0.5,
+    "santa-catarina": 1.0,
+    "sao-paulo": 1.3,
+    "sergipe": 2.0,
+}
 COEF_AT_SPRING = 95
 
 WEIGHTS = (
@@ -247,15 +267,18 @@ def _days_from(block: dict, prefix: str) -> list[tuple[date, str]]:
     return [(start + timedelta(days=idx), value) for idx, value in found]
 
 
-def title_place(html: str) -> tuple[str, str]:
+def title_place(html: str) -> tuple[str, str, str]:
     m = re.search(r"<title>([^<]+)</title>", html, re.I)
     if not m:
-        return "Praia", "Espírito Santo"
+        return "Praia", "", ""
     bits = [b.strip() for b in m.group(1).split(" - ") if b.strip()]
     praia = bits[0] if bits else "Praia"
     praia = re.sub(r"^praia\s+", "", praia, flags=re.I).strip() or "Praia"
-    cidade = bits[1] if len(bits) > 1 else "Espírito Santo"
-    return praia, cidade
+    cidade = bits[1] if len(bits) > 1 else ""
+    estado = bits[2] if len(bits) > 2 else ""
+    if estado.lower().startswith("brasil"):
+        estado = ""
+    return praia, cidade, estado
 
 
 def parse_page(html: str) -> dict:
@@ -315,10 +338,13 @@ def parse_page(html: str) -> dict:
         tsm = None
     if tsm is not None and (tsm <= 0 or tsm >= 45):
         tsm = None
-    praia, cidade = title_place(html)
+    praia, cidade, estado = title_place(html)
+    fuso = _num(html, "fuso_horario", -3)
     return {
         "praia": praia,
         "cidade": cidade,
+        "estado": estado,
+        "fuso": -3 if fuso is None else int(fuso),
         "ocean": ocean_rows,
         "surf": surf_by_date,
         "meteo": meteo_rows,
@@ -361,9 +387,22 @@ def wind_type(orientacao: float, wind_from: float, angulo_terral: float) -> str:
     return "maral"
 
 
-def tide_coefficient(range_m: float) -> int:
-    raw = range_m / SPRING_RANGE_M * COEF_AT_SPRING
+def tide_coefficient(range_m: float, spring_m: float = SPRING_RANGE_M) -> int:
+    spring = spring_m if spring_m and spring_m > 0 else SPRING_RANGE_M
+    raw = range_m / spring * COEF_AT_SPRING
     return int(round(max(18, min(120, raw))))
+
+
+def clock_label(fuso: int) -> str:
+    if fuso == -3:
+        return "horário de Brasília"
+    if fuso == -2:
+        return "horário de Fernando de Noronha"
+    if fuso == -4:
+        return "horário do Amazonas"
+    if fuso == -5:
+        return "horário do Acre"
+    return f"horário local (UTC{fuso:+d})"
 
 
 def coef_words(coef: int) -> str:
@@ -800,7 +839,8 @@ def build_forecast(parsed: dict, source_url: str) -> dict:
             if mid.date() == day:
                 swings.append(abs(right["height"] - left["height"]))
         range_m = max(swings) if swings else None
-        coef = tide_coefficient(range_m) if range_m is not None else None
+        spring = parsed.get("spring") or SPRING_RANGE_M
+        coef = tide_coefficient(range_m, spring) if range_m is not None else None
         age = o["moonAge"]
         hours = []
         for hour in range(24):
@@ -915,7 +955,7 @@ def build_forecast(parsed: dict, source_url: str) -> dict:
         "place": {
             "praia": parsed["praia"],
             "cidade": parsed["cidade"],
-            "estado": "Espírito Santo",
+            "estado": parsed.get("estado") or "",
             "estacao": _station_name(parsed["estacao"]),
             "lat": parsed["lat"],
             "lon": parsed["lon"],
@@ -927,6 +967,7 @@ def build_forecast(parsed: dict, source_url: str) -> dict:
             if parsed["estacaoId"]
             else ""
         ),
+        "clockLabel": clock_label(int(parsed.get("fuso") or -3)),
         "fetchedAt": now.isoformat(),
         "today": now.date().isoformat(),
         "nowHour": now.hour,
@@ -1020,6 +1061,8 @@ def _finish_day(day, hours, coef, range_m, age, day_extrema, sunrise, sunset, as
 
     wd = WEEKDAYS[day.weekday()]
     place = f"{parsed['praia']}, {parsed['cidade']}"
+    if parsed.get("estado"):
+        place = f"{place}, {parsed['estado']}"
     p1 = f"{wd.capitalize()}, {day.day} de {MONTHS[day.month]}, em {place}."
     turns = [item["hour"] for item in hours if item["text"].startswith("Virada de preamar") and item["score"] < 75]
     if turns:
@@ -1117,28 +1160,34 @@ def _finish_day(day, hours, coef, range_m, age, day_extrema, sunrise, sunset, as
     }
 
 
-def beach_url(municipio: str, praia: str) -> str:
-    return f"{SURF}/previsao/brasil/espirito-santo/{municipio}/{praia}"
+def beach_url(estado: str, municipio: str, praia: str) -> str:
+    return f"{SURF}/previsao/brasil/{estado}/{municipio}/{praia}"
 
 
-def load_beach(municipio: str, praia: str) -> dict:
-    url = beach_url(municipio, praia)
+def load_beach(estado: str, municipio: str, praia: str) -> dict:
+    url = beach_url(estado, municipio, praia)
     html = fetch_text(url)
     if "var ondas" not in html or "var meteoro" not in html:
-        raise ForecastError("O SurfGuru não entregou a previsão desta praia.")
-    return build_forecast(parse_page(html), url)
+        raise ForecastError("O SurfGuru não entregou a previsão deste ponto.")
+    page = parse_page(html)
+    page["spring"] = SPRING_BY_STATE.get(estado, SPRING_RANGE_M)
+    return build_forecast(page, url)
 
 
 def _nice(name: str, slug: str) -> str:
     text = (name or slug).strip()
+    small = {"de", "da", "do", "das", "dos", "e"}
     if text.upper() == text:
-        return " ".join(word.capitalize() for word in text.split())
+        words = []
+        for i, word in enumerate(text.split()):
+            low = word.lower()
+            words.append(low if i and low in small else low.capitalize())
+        return " ".join(words)
     return text
 
 
-def list_municipios() -> list[dict]:
-    raw = fetch_text(f"{SURF}/locais/municipios/brasil/espirito-santo")
-    data = json.loads(raw)
+def _places(url: str) -> list[dict]:
+    data = json.loads(fetch_text(url))
     out = []
     for item in data:
         slug = item.get("slug") or ""
@@ -1148,16 +1197,16 @@ def list_municipios() -> list[dict]:
     return out
 
 
-def list_praias(municipio: str) -> list[dict]:
-    raw = fetch_text(f"{SURF}/locais/praias/brasil/espirito-santo/{municipio}")
-    data = json.loads(raw)
-    out = []
-    for item in data:
-        slug = item.get("slug") or ""
-        if not slug:
-            continue
-        out.append({"slug": slug, "nome": _nice(item.get("nome") or "", slug)})
-    return out
+def list_estados() -> list[dict]:
+    return _places(f"{SURF}/locais/estados/brasil")
+
+
+def list_municipios(estado: str) -> list[dict]:
+    return _places(f"{SURF}/locais/municipios/brasil/{estado}")
+
+
+def list_praias(estado: str, municipio: str) -> list[dict]:
+    return _places(f"{SURF}/locais/praias/brasil/{estado}/{municipio}")
 
 
 def _self_test() -> None:
@@ -1184,7 +1233,7 @@ if __name__ == "__main__":
     _self_test()
     print("self-test ok")
     if "--check" in sys.argv:
-        report = load_beach("vitoria", "praia-camburi")
+        report = load_beach("espirito-santo", "vitoria", "praia-camburi")
         today = next(d for d in report["days"] if d["date"] == report["today"])
         assert today["hours"] and len(today["hours"]) == 24
         assert 0 <= today["score"] <= 100
@@ -1196,7 +1245,7 @@ if __name__ == "__main__":
                 assert 0 <= hour["windKmh"] <= 150
             if hour["tideM"] is not None:
                 assert -0.5 <= hour["tideM"] <= 4
-        other = load_beach("vila-velha", "oceanica")
+        other = load_beach("espirito-santo", "vila-velha", "oceanica")
         assert other["days"]
         print(json.dumps({"place": report["place"], "today": report["today"], "day": {k: today[k] for k in today if k != "hours"}}, ensure_ascii=False, indent=2))
         for hour in today["hours"]:
