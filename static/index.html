@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f3eee4">
+  <meta name="description" content="Previsão de pesca no Espírito Santo a partir do SurfGuru: clima, vento, chuva, pressão, maré, lua e coeficiente.">
+  <title>Dia de pesca — Espírito Santo</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23f3eee4' width='32' height='32'/%3E%3Cpath d='M4 20c3-4 6-4 9 0s6 4 9 0 6-4 6-4' fill='none' stroke='%230e5c54' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,640&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <p class="kicker">Espírito Santo</p>
+      <h1>Dia de pesca</h1>
+      <p class="lede">Como o dia se comporta para pescar, hora a hora, com os dados do SurfGuru.</p>
+    </header>
+
+    <form class="pick" id="pick">
+      <label>Cidade
+        <select id="mun" name="municipio"></select>
+      </label>
+      <label>Praia
+        <select id="praia" name="praia"></select>
+      </label>
+    </form>
+
+    <p class="status" id="status" role="status">Carregando cidades…</p>
+    <div id="out"></div>
+
+    <footer class="foot">
+      <p>Onda pelo WaveWatch III, atmosfera pelo GFS e maré pela Marinha do Brasil / xTide, via SurfGuru. O rank e o coeficiente são contas deste app.</p>
+      <p>O coeficiente é a maior variação entre duas marés seguidas, dividida por 1,6 m (sizígia típica nesta costa) e multiplicada por 95. A fase da lua segue a idade do SurfGuru: 1 é nova, 8 é quarto crescente, 16 é cheia e 24 é quarto minguante. Os horários de 3 em 3 horas são o modelo; as horas do meio são interpoladas. 100 é a melhor chance de diversão na melhor sequência de 3 horas, não uma garantia de peixe.</p>
+    </footer>
+  </main>
+  <script src="/app.js"></script>
+  <noscript><p class="wrap">Este app precisa de JavaScript para ler a previsão.</p></noscript>
+</body>
+</html>
